@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/theme-switcher.png" width="128" alt="Windows Theme Switcher 应用图标"></p>
+<p align="center"><img src="assets/windows-moon.png" width="128" alt="Windows Theme Switcher 应用图标"></p>
 
 # Windows Theme Switcher · 深浅色切换器
 
