@@ -1,0 +1,36 @@
+Verification date: 2026-10-22
+
+PASS: build.ps1 compiled ThemeSwitcher.cs with the local .NET Framework C# compiler.
+PASS: All decoded method IL instructions match the original executable exactly,
+      including Main, the instance constructor and the static constructor.
+PASS: Decoded field types/constants, P/Invoke declaration, method signatures,
+      local variable types and exception handling regions match the original.
+PASS: InstallerScript.iss SHA-256 matches the original file.
+HISTORICAL: MyIcon.ico matched the original on 2026-10-22. On 2026-10-23 it was
+replaced, at the author's request, with the Windows native monitor/moon icon.
+PASS: MSBuild also completed successfully using the supplied csproj.
+
+MSBuild environment note: The .NET Framework 4.0 targeting pack is absent on
+this machine. MSBuild reported MSB3644 and MSB3270 while falling back to the
+installed framework assemblies. The recommended build.ps1 path compiled
+successfully without these warnings.
+
+Not performed: Running light/dark, changing the registry, installing or
+uninstalling the program, and rebuilding the installer (ISCC.exe not found).
+No original files were modified. Binary identity is not claimed.
+
+2026-10-23 README and icon update:
+PASS: The program rebuilt successfully after replacing its icon.
+PASS: All decoded method IL still matches the original executable.
+PASS: The new ICO contains the native Windows monitor/moon icon at all eight
+      sizes, from 16 px to 256 px. Its source is documented in assets/README.md.
+PASS: README artwork was rendered and visually checked; the provided light
+      context-menu screenshot was copied without modification.
+No theme switch, installation or uninstallation was performed for this update.
+
+Original binaries selected for the initial release (2026-10-23):
+PASS: Decoded original and rebuilt method IL compared again with no differences.
+PASS: dist/ThemeSwitcher.exe is an exact SHA-256 match to the author's original.
+PASS: dist/ThemeSwitcherSetup.exe is an exact SHA-256 match to the author's original.
+The project-root ThemeSwitcher.exe has also been replaced with the original.
+Neither binary was modified, installed or run. Original embedded icons remain.

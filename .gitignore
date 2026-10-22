@@ -1,0 +1,10 @@
+# Build products (publish installers as GitHub Release assets).
+/ThemeSwitcher.exe
+/ThemeSwitcher.pdb
+/dist/
+/Output/
+/src/bin/
+/src/obj/
+.vs/
+*.user
+*.suo
