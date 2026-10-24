@@ -5,6 +5,11 @@
 /Output/
 /src/bin/
 /src/obj/
+/build/
+*.pfx
+*.p12
+*.key
+*.cer
 .vs/
 *.user
 *.suo
