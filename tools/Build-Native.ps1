@@ -1,6 +1,7 @@
 param(
     [switch]$Installer,
     [switch]$DevelopmentCertificate,
+    [switch]$UnsignedPrototype,
     [string]$CertificateThumbprint,
     [string]$Publisher,
     [string]$IsccPath,
@@ -53,9 +54,14 @@ if (-not $sdkBin) { throw 'Windows SDK MakeAppx and SignTool were not found.' }
 $makeappx = Join-Path $sdkBin.FullName 'x64\makeappx.exe'
 $signtool = Join-Path $sdkBin.FullName 'x64\signtool.exe'
 New-Item -ItemType Directory -Path (Join-Path $root 'dist\v2-development') -Force | Out-Null
-$dist = Join-Path $root 'dist\v2-development'
+$dist = Join-Path $root $(if ($UnsignedPrototype) { 'dist\v2-unsigned-prototype' } else { 'dist\v2-development' })
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $packageName = 'HakanaSora.ThemeSwitcher'
-if ($DevelopmentCertificate) {
+if ($UnsignedPrototype) {
+    if ($DevelopmentCertificate -or $CertificateThumbprint -or $Publisher) { throw 'Unsigned prototype cannot be combined with signing parameters.' }
+    $packageName += '.UnsignedDevelopment'
+    $Publisher = 'CN=Hakana Sora ThemeSwitcher Unsigned Development, OID.2.25.311729368913984317654407730594956997722=1'
+} elseif ($DevelopmentCertificate) {
     if ($CertificateThumbprint) { throw 'Choose either a development certificate or an existing signing certificate.' }
     $packageName += '.Development'
     $Publisher = 'CN=Hakana Sora ThemeSwitcher Development'
@@ -78,7 +84,7 @@ if ($DevelopmentCertificate) {
 } elseif (-not $CertificateThumbprint -or -not $Publisher) {
     throw 'Installer packaging requires -DevelopmentCertificate or an existing -CertificateThumbprint and -Publisher.'
 }
-if ($CertificateThumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'Invalid signing certificate thumbprint.' }
+if (-not $UnsignedPrototype -and $CertificateThumbprint -notmatch '^[0-9a-fA-F]{40}$') { throw 'Invalid signing certificate thumbprint.' }
 $stage = Join-Path $buildRoot 'identity-stage'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 $manifest = Get-Content -LiteralPath (Join-Path $root 'packaging\AppxManifest.xml.in') -Raw
@@ -88,9 +94,12 @@ $componentRoot = Join-Path $artifacts "components\$version"
 $identity = Join-Path $componentRoot 'identity.msix'
 & $makeappx pack /o /nv /d $stage /p $identity
 if ($LASTEXITCODE -ne 0) { throw 'Identity package creation failed.' }
-& $signtool sign /fd SHA256 /sha1 $CertificateThumbprint /s My $identity
-if ($LASTEXITCODE -ne 0) { throw 'Identity package signing failed.' }
+if (-not $UnsignedPrototype) {
+    & $signtool sign /fd SHA256 /sha1 $CertificateThumbprint /s My $identity
+    if ($LASTEXITCODE -ne 0) { throw 'Identity package signing failed.' }
+}
 Copy-Item -LiteralPath (Join-Path $artifacts 'ThemeSwitcher.Deploy.exe') -Destination $componentRoot
+Copy-Item -LiteralPath (Join-Path $artifacts 'ThemeSwitcher.MenuSetup.exe') -Destination $componentRoot
 'HakanaSora.ThemeSwitcher' | Set-Content -LiteralPath (Join-Path $componentRoot 'owner.txt') -Encoding ascii
 if (-not $IsccPath) {
     foreach ($candidate in @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:ProgramFiles\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")) {
@@ -98,7 +107,8 @@ if (-not $IsccPath) {
     }
 }
 if (-not $IsccPath) { throw 'Install Inno Setup 6 or supply -IsccPath.' }
-& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool]$DevelopmentCertificate)" "/O$dist" (Join-Path $root 'InstallerScript.iss')
+& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool]($DevelopmentCertificate -or $UnsignedPrototype))" "/DUnsignedPrototype=$([int][bool]$UnsignedPrototype)" "/O$dist" (Join-Path $root 'InstallerScript.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Write-Host "Installer: $(Join-Path $dist 'ThemeSwitcherSetup.exe')"
 if ($DevelopmentCertificate) { Write-Host 'Development package signed. No certificate trust or application registration was changed.' }
+if ($UnsignedPrototype) { Write-Host 'Unsigned local prototype. No certificates were created, exported or trusted.' }

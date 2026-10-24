@@ -10,13 +10,16 @@
 #ifndef AppVersion
   #error AppVersion is required.
 #endif
+#ifndef UnsignedPrototype
+  #define UnsignedPrototype 0
+#endif
 
 [Setup]
 AppId=桌面主题切换器 (Theme Switcher)
 AppName=桌面主题切换器 (Theme Switcher)
 AppVersion={#AppVersion}
 #if DevelopmentBuild
-AppVerName=Windows Theme Switcher 2.0 开发验证版
+AppVerName=Windows Theme Switcher {#AppVersion} 本机验证版
 #else
 AppVerName=Windows Theme Switcher 2.0
 #endif
@@ -52,6 +55,7 @@ Source: "{#BuildRoot}\components\{#AppVersion}\identity.msix"; Flags: dontcopy
 Source: "{#BuildRoot}\ThemeSwitcher.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildRoot}\components\{#AppVersion}\ThemeSwitcherShell.dll"; DestDir: "{app}\components\{#AppVersion}"; Flags: ignoreversion
 Source: "{#BuildRoot}\components\{#AppVersion}\ThemeSwitcher.Deploy.exe"; DestDir: "{app}\components\{#AppVersion}"; Flags: ignoreversion
+Source: "{#BuildRoot}\components\{#AppVersion}\ThemeSwitcher.MenuSetup.exe"; DestDir: "{app}\components\{#AppVersion}"; Flags: ignoreversion
 Source: "{#BuildRoot}\components\{#AppVersion}\identity.msix"; DestDir: "{app}\components\{#AppVersion}"; Flags: ignoreversion; Check: ModernWindows
 Source: "{#BuildRoot}\components\{#AppVersion}\owner.txt"; DestDir: "{app}\components\{#AppVersion}"; Flags: ignoreversion
 Source: "{#RepoRoot}\assets\windows-moon.png"; DestDir: "{app}\assets"; Flags: ignoreversion
@@ -133,6 +137,7 @@ begin
             BackupFile(Relative + '\owner.txt');
             BackupFile(Relative + '\ThemeSwitcherShell.dll');
             BackupFile(Relative + '\ThemeSwitcher.Deploy.exe');
+            BackupFile(Relative + '\ThemeSwitcher.MenuSetup.exe');
             BackupFile(Relative + '\identity.msix');
           end;
         end;
@@ -152,6 +157,7 @@ begin
           RestoreFile(Relative + '\owner.txt');
           RestoreFile(Relative + '\ThemeSwitcherShell.dll');
           RestoreFile(Relative + '\ThemeSwitcher.Deploy.exe');
+          RestoreFile(Relative + '\ThemeSwitcher.MenuSetup.exe');
           RestoreFile(Relative + '\identity.msix');
         end;
       until not FindNext(FindRec);
@@ -171,6 +177,7 @@ begin
           DeleteFile(ComponentDir + '\owner.txt');
           DeleteFile(ComponentDir + '\ThemeSwitcherShell.dll');
           DeleteFile(ComponentDir + '\ThemeSwitcher.Deploy.exe');
+          DeleteFile(ComponentDir + '\ThemeSwitcher.MenuSetup.exe');
           DeleteFile(ComponentDir + '\identity.msix');
           RemoveDir(ComponentDir);
         end;
@@ -234,7 +241,7 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var Detail: String;
+var Detail, MenuHelper, MenuPackage: String; Code: Integer;
 begin
   if CurStep = ssPostInstall then begin
     DeploymentAttempted := True;
@@ -244,6 +251,16 @@ begin
       if not RunDeploy('install-legacy ' + Quote(ExpandConstant('{app}')), Detail) then RaiseException(Detail);
     end;
     if not RunDeploy('cleanup-old ' + Quote(ExpandConstant('{app}')), Detail) then RaiseException(Detail);
+    if ModernWindows then begin
+      MenuHelper := ExpandConstant('{app}\components\{#AppVersion}\ThemeSwitcher.MenuSetup.exe');
+      MenuPackage := ExpandConstant('{app}\components\{#AppVersion}\identity.msix');
+      { Apply the preference to the original interactive user, not an alternate
+        administrator account used at the UAC prompt. Existing choices survive. }
+      if not ExecAsOriginalUser(MenuHelper, 'initialize ' + Quote(MenuPackage), '', SW_HIDE, ewWaitUntilTerminated, Code) then
+        RaiseException('无法为当前登录用户初始化菜单显示。错误代码：' + IntToStr(Code));
+      if Code = 20 then Log('当前系统没有对应的菜单个性化接口，使用系统默认显示位置。')
+      else if Code <> 0 then RaiseException('无法为当前登录用户初始化菜单显示。错误代码：' + IntToStr(Code));
+    end;
     Committed := True;
   end;
 end;

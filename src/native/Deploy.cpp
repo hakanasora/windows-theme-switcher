@@ -1,5 +1,6 @@
 #include "ThemeCore.h"
 #include "Version.h"
+#include "PackageIdentity.h"
 #include <appxpackaging.h>
 #include <shlwapi.h>
 #include <shellapi.h>
@@ -108,24 +109,8 @@ void RemoveLegacyV1(const fs::path& root) {
     // positively identified as this installation's command.
     if (owned) { DeleteRegistry(prefix+L"0_SeparatorTop"); DeleteRegistry(prefix+L"3_SeparatorBottom"); }
 }
-struct Identity { std::wstring name,publisher,family,full; };
-Identity ReadIdentity(const fs::path& package) {
-    com_ptr<IStream> stream;
-    check_hresult(SHCreateStreamOnFileEx(package.c_str(),STGM_READ | STGM_SHARE_DENY_WRITE,0,FALSE,nullptr,stream.put()));
-    auto factory = create_instance<IAppxFactory>(CLSID_AppxFactory);
-    com_ptr<IAppxPackageReader> reader; check_hresult(factory->CreatePackageReader(stream.get(),reader.put()));
-    com_ptr<IAppxManifestReader> manifest; check_hresult(reader->GetManifest(manifest.put()));
-    com_ptr<IAppxManifestPackageId> id; check_hresult(manifest->GetPackageId(id.put()));
-    Identity value;
-    const auto take = [](LPWSTR pointer) { std::wstring result(pointer); CoTaskMemFree(pointer); return result; };
-    LPWSTR text{};
-    check_hresult(id->GetName(&text)); value.name=take(text);
-    check_hresult(id->GetPublisher(&text)); value.publisher=take(text);
-    check_hresult(id->GetPackageFamilyName(&text)); value.family=take(text);
-    check_hresult(id->GetPackageFullName(&text)); value.full=take(text);
-    if (value.name != L"HakanaSora.ThemeSwitcher.Development" && value.name != L"HakanaSora.ThemeSwitcher") throw_hresult(E_INVALIDARG);
-    return value;
-}
+using theme::deployment::Identity;
+using theme::deployment::ReadIdentity;
 Windows::Foundation::Uri FileUri(const fs::path& path) {
     std::wstring uri(32768,L'\0'); DWORD length=static_cast<DWORD>(uri.size());
     check_hresult(UrlCreateFromPathW(fs::absolute(path).c_str(),uri.data(),&length,0)); uri.resize(length);
@@ -138,10 +123,17 @@ void Deployment(const DeploymentResult& result) {
 bool Missing(hresult value) {
     return value == HRESULT_FROM_WIN32(ERROR_INSTALL_PACKAGE_NOT_FOUND) || value == HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 }
+void RemovePreference(const Identity& id){
+    const auto preference=L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ContextMenu\\Preferences\\extensions\\"+id.family;
+    const auto error=RegDeleteTreeW(HKEY_CURRENT_USER,preference.c_str());
+    if(error!=ERROR_FILE_NOT_FOUND && error!=ERROR_PATH_NOT_FOUND)Win32(error);
+}
 void RemoveModern(const Identity& id) {
     PackageManager manager;
-    try { Deployment(manager.DeprovisionPackageForAllUsersAsync(id.family).get()); }
-    catch (const hresult_error& error) { if (!Missing(error.code())) throw; }
+    if(!id.unsignedPrototype){
+        try { Deployment(manager.DeprovisionPackageForAllUsersAsync(id.family).get()); }
+        catch (const hresult_error& error) { if (!Missing(error.code())) throw; }
+    }
     std::vector<std::wstring> packages;
     for (const auto& package : manager.FindPackages(id.name,id.publisher)) packages.emplace_back(package.Id().FullName());
     for (const auto& full : packages) {
@@ -151,11 +143,17 @@ void RemoveModern(const Identity& id) {
 }
 void AddModern(const fs::path& package,const fs::path& root,const Identity& id) {
     PackageManager manager;
-    StagePackageOptions stage; stage.ExternalLocationUri(FileUri(root));
-    Deployment(manager.StagePackageByUriAsync(FileUri(package),stage).get());
+    if(!id.unsignedPrototype){
+        StagePackageOptions stage; stage.ExternalLocationUri(FileUri(root));
+        Deployment(manager.StagePackageByUriAsync(FileUri(package),stage).get());
+    }
     AddPackageOptions add; add.ExternalLocationUri(FileUri(root));
+    add.AllowUnsigned(id.unsignedPrototype);
     Deployment(manager.AddPackageByUriAsync(FileUri(package),add).get());
-    Deployment(manager.ProvisionPackageForAllUsersAsync(id.family).get());
+    // Match the elevated Add-AppxPackage -AllowUnsigned experiment. Unsigned
+    // executable packages use Windows' all-user deployment rules; do not add
+    // an untested signed-package staging/provisioning step to this path.
+    if(!id.unsignedPrototype)Deployment(manager.ProvisionPackageForAllUsersAsync(id.family).get());
 }
 void ModernInstall(const fs::path& package,const fs::path& root) {
     if (!fs::is_regular_file(root/L"ThemeSwitcher.exe") || !fs::is_regular_file(root/L"components"/TS_VERSION_W/L"ThemeSwitcherShell.dll"))
@@ -175,6 +173,10 @@ void ModernInstall(const fs::path& package,const fs::path& root) {
         RemoveLegacyV1(root);
         // Never keep both packaged and unpackaged v2 registrations.
         RemoveLegacyV2();
+        if(!oldVersion.empty() && oldVersion!=TS_VERSION_W && fs::exists(previous)){
+            const auto oldIdentity=ReadIdentity(previous);
+            if(oldIdentity.family!=id.family)RemoveModern(oldIdentity);
+        }
     } catch (...) {
         const auto original = std::current_exception();
         if (!alreadyInstalled) {
@@ -226,6 +228,7 @@ void Preflight(const fs::path& root) {
         if (!OwnedVersion(directory.path())) continue;
         ProbeFile(directory.path()/L"ThemeSwitcherShell.dll");
         ProbeFile(directory.path()/L"ThemeSwitcher.Deploy.exe");
+        ProbeFile(directory.path()/L"ThemeSwitcher.MenuSetup.exe");
     }
 }
 void CleanupOld(const fs::path& root) {
@@ -235,7 +238,7 @@ void CleanupOld(const fs::path& root) {
         if (entry.path().filename() == TS_VERSION_W || !OwnedVersion(entry.path())) continue;
         // Delete only a fixed list of our files, never recursively remove a
         // user-selected installation directory or an unknown directory.
-        for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"identity.msix",L"owner.txt"}) {
+        for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"ThemeSwitcher.MenuSetup.exe",L"identity.msix",L"owner.txt"}) {
             const auto path = entry.path()/file;
             if (fs::exists(path) && !DeleteFileW(path.c_str())) Win32(GetLastError());
         }
@@ -254,7 +257,10 @@ void Uninstall(const fs::path& root) {
         if (version.empty() || version.find_first_not_of(L"0123456789.") != std::wstring::npos) throw_hresult(E_INVALIDARG);
         const auto package=root/L"components"/version/L"identity.msix";
         const auto id=ReadIdentity(package);
-        try { RemoveModern(id); }
+        try {
+            RemoveModern(id);
+            RemovePreference(id);
+        }
         catch (...) {
             const auto original=std::current_exception();
             try { AddModern(package,root,id); }
@@ -273,18 +279,33 @@ void Rollback(const fs::path& root) {
         PackageManager manager;
         if (oldBackend != L"modern") {
             try { RemoveModern(current); } catch (const hresult_error& e) { if (!Missing(e.code())) throw; }
+            RemovePreference(current);
         } else if (!oldVersion.empty() && oldVersion != TS_VERSION_W) {
             try { Deployment(manager.RemovePackageAsync(current.full,RemovalOptions::RemoveForAllUsers).get()); }
             catch (const hresult_error& e) { if (!Missing(e.code())) throw; }
             const auto oldPackage=root/L"components"/oldVersion/L"identity.msix";
-            AddModern(oldPackage,root,ReadIdentity(oldPackage));
+            const auto previous=ReadIdentity(oldPackage);
+            AddModern(oldPackage,root,previous);
+            if(previous.family!=current.family)RemovePreference(current);
         }
     }
     if (oldBackend == L"legacy" && !oldVersion.empty()) SetLegacy(root/L"components"/oldVersion/L"ThemeSwitcherShell.dll");
     else RemoveLegacyV2();
 }
 void VerifySignature(const fs::path& package) {
-    ReadIdentity(package); // Reject identities outside this product before any deployment.
+    const auto identity=ReadIdentity(package); // Reject identities outside this product before any deployment.
+    if(identity.unsignedPrototype){
+        // Only this exact, isolated prototype publisher may use AllowUnsigned.
+        // Never silently downgrade a signed identity when its trust check fails.
+        com_ptr<IStream> stream;
+        check_hresult(SHCreateStreamOnFileEx(package.c_str(),STGM_READ|STGM_SHARE_DENY_WRITE,0,FALSE,nullptr,stream.put()));
+        auto factory=create_instance<IAppxFactory>(CLSID_AppxFactory);
+        com_ptr<IAppxPackageReader> reader;check_hresult(factory->CreatePackageReader(stream.get(),reader.put()));
+        com_ptr<IAppxFile> signature;
+        if(SUCCEEDED(reader->GetFootprintFile(APPX_FOOTPRINT_FILE_TYPE_SIGNATURE,signature.put())))
+            throw hresult_error(E_INVALIDARG,L"无签名验证包的身份与文件内容不一致。");
+        return;
+    }
     WINTRUST_FILE_INFO file{sizeof(file)}; file.pcwszFilePath=package.c_str();
     WINTRUST_DATA data{sizeof(data)};
     data.dwUIChoice=WTD_UI_NONE; data.fdwRevocationChecks=WTD_REVOKE_NONE;
@@ -299,7 +320,7 @@ void DiscardVersion(const fs::path& root) {
     if (ReadIni(root,L"Version") == TS_VERSION_W) return;
     const auto directory=root/L"components"/TS_VERSION_W;
     if (!OwnedVersion(directory)) return;
-    for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"identity.msix",L"owner.txt"}) {
+    for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"ThemeSwitcher.MenuSetup.exe",L"identity.msix",L"owner.txt"}) {
         const auto path=directory/file;
         if (fs::exists(path) && !DeleteFileW(path.c_str())) Win32(GetLastError());
     }

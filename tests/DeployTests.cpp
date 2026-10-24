@@ -32,6 +32,10 @@ struct Environment {
 };
 void Put(const fs::path& path,const char* value="test") { fs::create_directories(path.parent_path()); std::ofstream file(path,std::ios::binary); file<<value; }
 void Tests() {
+    Require(theme::deployment::ValidIdentity(theme::deployment::UnsignedName,theme::deployment::UnsignedPublisher),"Exact unsigned prototype identity is accepted");
+    Require(!theme::deployment::ValidIdentity(L"Foreign.Application",theme::deployment::UnsignedPublisher),"Unrelated unsigned identity is rejected");
+    Require(!theme::deployment::ValidIdentity(theme::deployment::UnsignedName,L"CN=Wrong Publisher"),"Unsigned prototype publisher cannot be substituted");
+    Require(!theme::deployment::ValidIdentity(L"HakanaSora.ThemeSwitcher",theme::deployment::UnsignedPublisher),"Signed identity cannot silently switch to unsigned");
     Environment environment;
     const auto root=environment.directory/L"installation";
     const auto components=root/L"components"/TS_VERSION_W;

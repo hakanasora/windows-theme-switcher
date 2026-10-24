@@ -4,7 +4,7 @@
 
 通过桌面右键菜单，快速切换 Windows 深色与浅色模式。
 
-当前分支为 **2.0 开发验证版**，尚未公开发行。正式发布前需要完成菜单、覆盖升级和跨系统联调。
+当前分支为 **2.0.1 本机验证版**，尚未公开发行。正式发布前需要完成安装、升级和跨系统联调。
 
 **[下载已发布的稳定版](https://github.com/hakanasora/windows-theme-switcher/releases/latest)** · [开发说明](DEVELOPMENT.md) · [验证步骤](docs/TESTING.md)
 
@@ -33,9 +33,9 @@ Windows Theme Switcher 将这项操作放入桌面右键菜单。**在桌面空�
 
 2.0 面向原生 x64 系统：Windows 10 及较早 Windows 11 使用传统菜单；Windows 11 22H2 及以上使用现代桌面菜单注册，安装需要管理员权限。
 
-开发安装包由 `build.ps1 -Installer -DevelopmentCertificate` 生成，位于 `dist/v2-development/`。它只适用于明确授权的测试环境，现代菜单测试前需要手动信任所附开发公钥证书。安装器不会导入证书或开启开发者模式，详细步骤见[验证文档](docs/TESTING.md)。
+本轮安装包由 `build.ps1 -Installer -UnsignedPrototype` 生成，位于 `dist/v2-unsigned-prototype/`。安装时由原生部署助手设置 `AllowUnsigned`，不需要手动导入开发证书，也不开启开发者模式。无签名部署是微软定位为测试用途的机制，本轮仍限本机验证。
 
-安装后，在桌面空白处点击右键，选择与当前模式相反的切换项。如果 Windows 将扩展放入“应用扩展”子菜单，可在“个性化 → 上下文菜单”中开启主菜单显示。程序不强制修改该偏好，也不指定系统菜单中的固定行号。
+安装后，在桌面空白处点击右键，选择与当前模式相反的切换项。支持菜单个性化接口的系统会在首次安装时为原登录用户初始化一级显示；升级保留已有开启或关闭选择。较早系统没有该接口时保留系统默认位置。程序不指定系统菜单中的固定行号。
 
 部分应用可能需要重新打开，才能应用新的颜色模式。
 
@@ -76,23 +76,23 @@ Windows Theme Switcher 将这项操作放入桌面右键菜单。**在桌面空�
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-脚本默认运行自动测试。编译结果位于 `build/native/artifacts/`；菜单 DLL 位于其版本化的 `components/2.0.0/` 子目录。`src/ThemeSwitcher.cs` 和对应项目文件仅保留作 1.0 恢复源码参考，不参与 2.0 构建。
+脚本默认运行自动测试。编译结果位于 `build/native/artifacts/`；菜单 DLL 位于其版本化的 `components/2.0.1/` 子目录。`src/ThemeSwitcher.cs` 和对应项目文件仅保留作 1.0 恢复源码参考，不参与 2.0 构建。
 
 ### 生成安装包
 
-安装 Inno Setup 6 后，在项目根目录生成开发签名安装包：
+安装 Inno Setup 6 后，在项目根目录生成本轮无签名验证安装包：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer -DevelopmentCertificate
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer -UnsignedPrototype
 ```
 
 如果无法自动找到 Inno Setup，可手动指定编译器路径：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer -DevelopmentCertificate -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Installer -UnsignedPrototype -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 
-安装包输出至 `dist/v2-development/ThemeSwitcherSetup.exe`，旁边包含公钥证书及指纹。开发私钥保存在当前用户的个人证书存储中且不可导出；构建脚本不修改证书信任。
+安装包输出至 `dist/v2-unsigned-prototype/ThemeSwitcherSetup.exe`，不附带证书。旧的 `-DevelopmentCertificate` 构建方式保留作对照，不能与 `-UnsignedPrototype` 混用。
 
 ## 工作原理
 
