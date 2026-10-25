@@ -1,5 +1,6 @@
 param(
     [switch]$Installer,
+    [switch]$Release,
     [switch]$DevelopmentCertificate,
     [switch]$UnsignedPrototype,
     [string]$CertificateThumbprint,
@@ -9,6 +10,9 @@ param(
     [switch]$Clean
 )
 $ErrorActionPreference = 'Stop'
+if ($Release -and (-not $Installer -or $DevelopmentCertificate -or $SkipTests)) {
+    throw 'Release packaging requires -Installer, enabled tests, and no development certificate.'
+}
 $root = Split-Path $PSScriptRoot -Parent
 $buildRoot = Join-Path $root 'build\native'
 $version = (Get-Content -LiteralPath (Join-Path $root 'VERSION') -Raw).Trim()
@@ -54,7 +58,7 @@ if (-not $sdkBin) { throw 'Windows SDK MakeAppx and SignTool were not found.' }
 $makeappx = Join-Path $sdkBin.FullName 'x64\makeappx.exe'
 $signtool = Join-Path $sdkBin.FullName 'x64\signtool.exe'
 New-Item -ItemType Directory -Path (Join-Path $root 'dist\v2-development') -Force | Out-Null
-$dist = Join-Path $root $(if ($UnsignedPrototype) { 'dist\v2-unsigned-prototype' } else { 'dist\v2-development' })
+$dist = Join-Path $root $(if ($Release) { 'dist\release' } elseif ($UnsignedPrototype) { 'dist\v2-unsigned-prototype' } else { 'dist\v2-development' })
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 $packageName = 'HakanaSora.ThemeSwitcher'
 if ($UnsignedPrototype) {
@@ -107,8 +111,8 @@ if (-not $IsccPath) {
     }
 }
 if (-not $IsccPath) { throw 'Install Inno Setup 6 or supply -IsccPath.' }
-& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool]($DevelopmentCertificate -or $UnsignedPrototype))" "/DUnsignedPrototype=$([int][bool]$UnsignedPrototype)" "/O$dist" (Join-Path $root 'InstallerScript.iss')
+& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool](-not $Release))" "/DUnsignedPrototype=$([int][bool]$UnsignedPrototype)" "/O$dist" (Join-Path $root 'InstallerScript.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Write-Host "Installer: $(Join-Path $dist 'ThemeSwitcherSetup.exe')"
 if ($DevelopmentCertificate) { Write-Host 'Development package signed. No certificate trust or application registration was changed.' }
-if ($UnsignedPrototype) { Write-Host 'Unsigned local prototype. No certificates were created, exported or trusted.' }
+if ($UnsignedPrototype) { Write-Host 'Unsigned identity package. No certificates were created, exported or trusted.' }

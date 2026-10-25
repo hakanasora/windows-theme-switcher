@@ -1,4 +1,18 @@
-# 2.0 开发说明
+# 开发说明
+
+## 2.0.2 发行构建
+
+```powershell
+.\build.ps1 -Installer -UnsignedPrototype -Release
+```
+
+输出为 `dist/release/ThemeSwitcherSetup.exe`。`-Release` 必须执行测试，且不能使用开发证书；安装器名称显示为 Windows Theme Switcher 2.0.2。它不改变已经实测的菜单代码、身份包名称或 Publisher，避免仅因发行改名产生新的身份迁移。
+
+`UnsignedPrototype` 参数名沿用研究阶段；本次分发采用同一无签名身份包和管理员部署路径。用户不需要手动导入证书。微软将 AllowUnsigned 定位为测试用途，本项目采用该路径发行，不代表微软对其公开分发或所有系统版本提供兼容承诺。来源：https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package
+
+一级显示使用内部 WinRT 接口，缺失时保留系统默认位置。当前 Beta 的无签名安装、动态切换、一级开关及完整卸载已完成用户实测；Windows 10、Windows 11 稳定版、独立标准账户、跨用户部署、原始 1.0 直接升级及失败恢复仍须扩大验证。验证范围见 docs/TESTING.md。
+
+传统菜单的现有单项布局已由作者确认采用，不再作为待修复分组问题。下面保留架构和研究阶段记录作为开发参考。
 
 ## 构建
 
@@ -14,7 +28,7 @@ Windows 原生 x64，Visual Studio Build Tools 2022 的 MSVC x64、CMake/Ninja�
 
 第三条是本轮 2.0.1 无签名验证路线，不创建或导出证书。隔离身份为 `HakanaSora.ThemeSwitcher.UnsignedDevelopment`，Publisher 必须精确匹配源码白名单并带 unsigned OID。部署采用已验证的提升权限 Add + AllowUnsigned + ExternalLocation，不把旧的签名验证失败降级成无签名安装。
 
-正式包构建接收 `-CertificateThumbprint` 和 `-Publisher`，证书必须已在当前用户的 `My` 存储中，且 Subject 与 Publisher 相符。开发包身份为 `HakanaSora.ThemeSwitcher.Development`，正式身份为 `HakanaSora.ThemeSwitcher`；不得混用开发身份作为正式发布链。正式签名、时间戳及分发方案确定前不发布 2.0。
+签名包构建接收 `-CertificateThumbprint` 和 `-Publisher`，证书必须已在当前用户的 `My` 存储中，且 Subject 与 Publisher 相符。开发签名包身份为 `HakanaSora.ThemeSwitcher.Development`，预留的签名正式身份为 `HakanaSora.ThemeSwitcher`。当前 2.0.2 无签名发行使用此前验证的独立身份，见本文开头。
 
 ## 运行结构
 
@@ -44,7 +58,7 @@ Windows 可能保留命令对象/工厂，因此组件可能在宿主中保持�
 
 自动一级显示采用 `ExecAsOriginalUser`，不依赖工具进程所在环境。实验已证明相同诊断 EXE 在工具环境和正常桌面环境读到不同结果，因此安装效果必须由用户从正常桌面启动安装器验证，不能以工具环境中的读回成功代替实测。安装器主动不请求 Explorer 重启。
 
-传统菜单前后分隔标志仍由同一个 IExplorerCommand 返回，但当前 Beta 实测没有形成独立分组；本轮尚未解决，不添加会产生重复入口的第二套处理程序。
+传统菜单前后分隔标志由同一个 IExplorerCommand 返回，具体绘制由系统决定。当前 Beta 的单项布局已确认采用，不再另外注册第二套传统菜单处理程序。
 
 组件目录包含产品归属标记，清理时只删除标记匹配目录中的固定文件名，不递归清空用户选定的安装目录。安装和卸载均不自动杀死资源管理器，不导入证书，不开启开发者模式。
 

@@ -21,7 +21,7 @@ AppVersion={#AppVersion}
 #if DevelopmentBuild
 AppVerName=Windows Theme Switcher {#AppVersion} 本机验证版
 #else
-AppVerName=Windows Theme Switcher 2.0
+AppVerName=Windows Theme Switcher {#AppVersion}
 #endif
 AppPublisher=Hakana Sora
 SetupIconFile={#RepoRoot}\MyIcon.ico
