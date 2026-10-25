@@ -38,6 +38,9 @@ UninstallLogMode=overwrite
 UninstallDisplayIcon={app}\ThemeSwitcher.exe
 DisableWelcomePage=yes
 DisableDirPage=auto
+; PrepareToInstall separately rejects nonempty unrelated targets. An existing
+; empty directory does not need a second confirmation dialog.
+DirExistsWarning=no
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 CloseApplications=no
@@ -61,11 +64,7 @@ Source: "{#BuildRoot}\components\{#AppVersion}\owner.txt"; DestDir: "{app}\compo
 Source: "{#RepoRoot}\assets\windows-moon.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
-[UninstallDelete]
-Type: files; Name: "{app}\install-state.ini"
-Type: dirifempty; Name: "{app}\components\{#AppVersion}"
-Type: dirifempty; Name: "{app}\components"
-Type: dirifempty; Name: "{app}\assets"
+#include "InstallDirectories.iss"
 
 [Code]
 var
@@ -73,6 +72,7 @@ var
   BackedUp, DeploymentAttempted, Committed, RestoreFailed: Boolean;
   OldDisplayName, OldDisplayVersion: String;
   HadOldEntry: Boolean;
+  RootSnapshotTaken, RootExistedBeforeSetup: Boolean;
 
 function ModernWindows: Boolean;
 var Version: TWindowsVersion;
@@ -201,6 +201,10 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Detail, PreviousDir: String; FindRec: TFindRec; HasFiles: Boolean;
 begin
   Result := '';
+  if not RootSnapshotTaken then begin
+    RootExistedBeforeSetup := DirExists(ExpandConstant('{app}'));
+    RootSnapshotTaken := True;
+  end;
   { Refuse to overwrite another application's files or move an existing install. }
   if RegQueryStringValue(HKLM32, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\桌面主题切换器 (Theme Switcher)_is1', 'InstallLocation', PreviousDir) then begin
     if CompareText(RemoveBackslashUnlessRoot(PreviousDir), RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0 then begin
@@ -296,6 +300,10 @@ begin
       MsgBox('升级未完成，自动恢复也未能全部完成。恢复文件已保留，请勿删除：' + BackupDir, mbError, MB_OK)
     else CleanBackup;
   end;
+  { Aborted setup may have created the app root before Inno recorded directories.
+    Remove only an empty root that this setup itself introduced. }
+  if RootSnapshotTaken and not RootExistedBeforeSetup and not Committed then
+    RemoveDir(ExpandConstant('{app}'));
 end;
 
 function InitializeUninstall: Boolean;

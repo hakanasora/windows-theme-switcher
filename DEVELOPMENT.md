@@ -55,3 +55,9 @@ Windows 可能保留命令对象/工厂，因此组件可能在宿主中保持�
 安装器使用 `UninstallLogMode=overwrite`，避免继承 1.0 中按通用菜单键名执行的卸载动作；旧卸载文件也纳入恢复备份。该迁移选择必须通过原始 1.0 安装包的实机测试。
 
 版本统一读取仓库根目录 `VERSION`。编译环境使用 MSVC 英文诊断，确保 Ninja 能正确解析头文件依赖；不更改 Windows 的显示语言。
+
+## 2.0.2 空目录清理修复
+
+PrepareToInstall 为 `.upgrade-recovery` 提前创建 `{app}`，使默认目录跟踪把安装根目录视为原有目录。2.0.2 使用共享的 `packaging/InstallDirectories.iss`，对四个自有目录记录 `uninsalwaysuninstall`，最后通过 `dirifempty` 清理安装根目录。没有递归删除或目录通配符。安装中止时，也仅尝试移除本次新建且已空的根目录。
+
+`tools/Test-InstallerDirectories.ps1` 构建并静默运行隔离的低权限 Inno 安装夹具。旧规则对照能复现空根目录残留；共用生产目录规则的修复夹具验证新根目录、预先存在空根目录的移除，以及额外用户文件的保留。夹具不会注册菜单或触碰真实安装。

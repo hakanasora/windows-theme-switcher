@@ -4,7 +4,7 @@
 
 通过桌面右键菜单，快速切换 Windows 深色与浅色模式。
 
-当前分支为 **2.0.1 本机验证版**，尚未公开发行。正式发布前需要完成安装、升级和跨系统联调。
+当前分支为 **2.0.2 本机验证版**，尚未公开发行。正式发布前需要完成安装、升级和跨系统联调。
 
 **[下载已发布的稳定版](https://github.com/hakanasora/windows-theme-switcher/releases/latest)** · [开发说明](DEVELOPMENT.md) · [验证步骤](docs/TESTING.md)
 
@@ -45,6 +45,8 @@ Windows Theme Switcher 将这项操作放入桌面右键菜单。**在桌面空�
 
 2.0 卸载流程包含身份包和传统注册项的清理。原型阶段需验证实际清理结果；如果菜单组件仍被占用，安装器会提示重试，不强行终止资源管理器。
 
+2.0.2 修复了卸载后留下空安装目录的问题：即使安装目录由升级准备阶段提前创建，也会在卸载时尝试移除。只删除空目录，用户另外放入的文件会保留。重新安装到已有空目录时不再额外确认，非空且不属于本产品的目录仍拒绝覆盖。
+
 卸载不会改变当前的颜色模式。
 
 ### 命令行调用
@@ -76,7 +78,7 @@ Windows Theme Switcher 将这项操作放入桌面右键菜单。**在桌面空�
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-脚本默认运行自动测试。编译结果位于 `build/native/artifacts/`；菜单 DLL 位于其版本化的 `components/2.0.1/` 子目录。`src/ThemeSwitcher.cs` 和对应项目文件仅保留作 1.0 恢复源码参考，不参与 2.0 构建。
+脚本默认运行自动测试。编译结果位于 `build/native/artifacts/`；菜单 DLL 位于其版本化的 `components/2.0.2/` 子目录。`src/ThemeSwitcher.cs` 和对应项目文件仅保留作 1.0 恢复源码参考，不参与 2.0 构建。
 
 ### 生成安装包
 
