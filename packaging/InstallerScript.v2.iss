@@ -18,7 +18,8 @@
 AppId=桌面主题切换器 (Theme Switcher)
 AppName=桌面主题切换器 (Theme Switcher)
 AppVersion={#AppVersion}
-#if DevelopmentBuild
+; Command-line /D values are strings: convert "0" explicitly before testing.
+#if Int(DevelopmentBuild)
 AppVerName=Windows Theme Switcher {#AppVersion} 本机验证版
 #else
 AppVerName=Windows Theme Switcher {#AppVersion}

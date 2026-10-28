@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Installer,
     [switch]$Release,
     [switch]$DevelopmentCertificate,
@@ -111,8 +111,13 @@ if (-not $IsccPath) {
     }
 }
 if (-not $IsccPath) { throw 'Install Inno Setup 6 or supply -IsccPath.' }
-& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool](-not $Release))" "/DUnsignedPrototype=$([int][bool]$UnsignedPrototype)" "/O$dist" (Join-Path $root 'InstallerScript.iss')
+$preprocessed = Join-Path $buildRoot 'installer-preprocessed.iss'
+& $IsccPath "/DBuildRoot=$artifacts" "/DRepoRoot=$root" "/DAppVersion=$version" "/DDevelopmentBuild=$([int][bool](-not $Release))" "/DUnsignedPrototype=$([int][bool]$UnsignedPrototype)" "/DPreprocessedOutput=$preprocessed" "/O$dist" (Join-Path $root 'InstallerScript.iss')
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+$expectedName = "Windows Theme Switcher $version" + $(if ($Release) { '' } else { ' 本机验证版' })
+$actualName = [regex]::Match([IO.File]::ReadAllText($preprocessed),'(?m)^AppVerName=(.*)\r?$').Groups[1].Value.Trim()
+if ($actualName -ne $expectedName) { throw "Incorrect installer name: $actualName" }
+Write-Host "Verified installer name: $actualName"
 Write-Host "Installer: $(Join-Path $dist 'ThemeSwitcherSetup.exe')"
 if ($DevelopmentCertificate) { Write-Host 'Development package signed. No certificate trust or application registration was changed.' }
 if ($UnsignedPrototype) { Write-Host 'Unsigned identity package. No certificates were created, exported or trusted.' }
