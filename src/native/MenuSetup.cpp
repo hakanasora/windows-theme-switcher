@@ -26,8 +26,12 @@ std::wstring PreferencePath(const std::wstring& family){
     return L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\ContextMenu\\Preferences\\extensions\\"+family;
 }
 bool ExplicitChoice(const std::wstring& family){
-    DWORD size{},type{};
-    return RegGetValueW(HKEY_CURRENT_USER,PreferencePath(family).c_str(),L"Enabled",RRF_RT_ANY,&type,nullptr,&size)==ERROR_SUCCESS;
+    DWORD value{}, size=sizeof(value);
+    const auto error=RegGetValueW(HKEY_CURRENT_USER,PreferencePath(family).c_str(),L"Enabled",RRF_RT_REG_DWORD,nullptr,&value,&size);
+    if(error==ERROR_FILE_NOT_FOUND || error==ERROR_PATH_NOT_FOUND)return false;
+    winrt::check_hresult(HRESULT_FROM_WIN32(error));
+    if(value>1)winrt::throw_hresult(HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+    return true;
 }
 int Initialize(const theme::deployment::Identity& identity){
     // Never overwrite an existing off/on choice during an upgrade.

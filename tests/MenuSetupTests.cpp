@@ -21,6 +21,17 @@ int main(){
             DWORD actual{},bytes=sizeof(actual);
             if(RegQueryValueExW(key,L"Enabled",nullptr,nullptr,reinterpret_cast<BYTE*>(&actual),&bytes)||actual!=choice)throw std::runtime_error("An upgrade changed the user's explicit choice");
         }
+        for(DWORD invalid:{2u,0xffffffffu}){
+            RegSetValueExW(key,L"Enabled",0,REG_DWORD,reinterpret_cast<const BYTE*>(&invalid),sizeof(invalid));
+            bool rejected=false;try{ExplicitChoice(identity.family);}catch(const winrt::hresult_error&){rejected=true;}
+            if(!rejected)throw std::runtime_error("Invalid preference must be reported");
+        }
+        const wchar_t invalidType[]=L"on";
+        RegSetValueExW(key,L"Enabled",0,REG_SZ,reinterpret_cast<const BYTE*>(invalidType),sizeof(invalidType));
+        bool rejected=false;try{ExplicitChoice(identity.family);}catch(const winrt::hresult_error&){rejected=true;}
+        if(!rejected)throw std::runtime_error("Wrong preference type must be reported");
+        RegDeleteValueW(key,L"Enabled");
+        if(ExplicitChoice(identity.family))throw std::runtime_error("Missing preference is not an explicit choice");
         RegCloseKey(key);
         RegOverridePredefKey(HKEY_CURRENT_USER,nullptr);redirected=false;
         RegCloseKey(hive);hive=nullptr;

@@ -46,9 +46,10 @@ public:
     }
     IFACEMETHODIMP_(ULONG) AddRef() override { return ++references_; }
     IFACEMETHODIMP_(ULONG) Release() override { const auto count = --references_; if (!count) delete this; return count; }
-    IFACEMETHODIMP GetTitle(IShellItemArray*, PWSTR* title) override { return SHStrDupW(snapshot_.Title(), title); }
-    IFACEMETHODIMP GetIcon(IShellItemArray*, PWSTR* icon) override { return SHStrDupW(snapshot_.Icon(), icon); }
+    IFACEMETHODIMP GetTitle(IShellItemArray*, PWSTR* title) override { return title ? SHStrDupW(snapshot_.Title(), title) : E_POINTER; }
+    IFACEMETHODIMP GetIcon(IShellItemArray*, PWSTR* icon) override { return icon ? SHStrDupW(snapshot_.Icon(), icon) : E_POINTER; }
     IFACEMETHODIMP GetToolTip(IShellItemArray*, PWSTR* value) override {
+        if (!value) return E_POINTER;
         return SHStrDupW(snapshot_.Valid() ? L"切换 Windows 系统和应用的颜色模式" : L"暂时无法读取当前颜色模式", value);
     }
     IFACEMETHODIMP GetCanonicalName(GUID* value) override {
@@ -109,7 +110,16 @@ public:
         } catch (const std::bad_alloc&) { return E_OUTOFMEMORY; }
           catch (...) { return E_FAIL; }
     }
-    IFACEMETHODIMP LockServer(BOOL lock) override { if (lock) ++locks; else if (locks.load() > 0) --locks; return S_OK; }
+    IFACEMETHODIMP LockServer(BOOL lock) override {
+        if (lock) {
+            ++locks;
+        } else {
+            // Avoid a check/decrement race that can leave the count negative.
+            auto count = locks.load();
+            while (count > 0 && !locks.compare_exchange_weak(count, count - 1)) {}
+        }
+        return S_OK;
+    }
 };
 }
 

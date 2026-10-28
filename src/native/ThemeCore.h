@@ -13,7 +13,7 @@ struct Snapshot {
     Mode current{Mode::Unknown};
     DWORD error{ERROR_NOT_READY};
     std::uint32_t generation{};
-    bool Valid() const noexcept { return error == ERROR_SUCCESS && current != Mode::Unknown; }
+    bool Valid() const noexcept { return error == ERROR_SUCCESS && (current == Mode::Light || current == Mode::Dark); }
     Mode Target() const noexcept { return current == Mode::Light ? Mode::Dark : Mode::Light; }
     const wchar_t* Title() const noexcept {
         return !Valid() ? L"切换颜色模式（暂不可用）" :

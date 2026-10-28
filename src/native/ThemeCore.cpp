@@ -31,7 +31,7 @@ DWORD Write(HKEY key, const wchar_t* name, DWORD value, RegistryWriter writer) n
 }
 }
 ApplyResult ApplyToKey(HKEY key, Mode target, RegistryWriter writer) noexcept {
-    if (target != Mode::Light && target != Mode::Dark) return {ERROR_INVALID_PARAMETER};
+    if (!writer || (target != Mode::Light && target != Mode::Dark)) return {ERROR_INVALID_PARAMETER};
     Saved system{}, apps{};
     if (auto error = Save(key, SystemValue, system)) return {error};
     if (auto error = Save(key, AppsValue, apps)) return {error};

@@ -37,6 +37,9 @@ void Tests() {
     Require(!theme::deployment::ValidIdentity(theme::deployment::UnsignedName,L"CN=Wrong Publisher"),"Unsigned prototype publisher cannot be substituted");
     Require(!theme::deployment::ValidIdentity(L"HakanaSora.ThemeSwitcher",theme::deployment::UnsignedPublisher),"Signed identity cannot silently switch to unsigned");
     Environment environment;
+    for (const auto* version : {L"",L".",L"..",L"1",L"1.2",L"1..2",L"1.2.3.4",L"../1.2.3",L"1.2.3/child"})
+        Require(!ValidVersion(version),"Reject malformed or traversing component versions");
+    Require(ValidVersion(L"2.0.2") && ValidVersion(L"10.20.300"),"Accept decimal three-part versions");
     const auto root=environment.directory/L"installation";
     const auto components=root/L"components"/TS_VERSION_W;
     Put(root/L"ThemeSwitcher.exe","original"); Put(components/L"ThemeSwitcherShell.dll"); Put(components/L"owner.txt","HakanaSora.ThemeSwitcher\r\n");
@@ -55,6 +58,21 @@ void Tests() {
     Require(ReadRegistry(prefix+L"1_LightMode\\command").empty() && ReadRegistry(prefix+L"2_DarkMode\\command").empty(),"Upgrade removes old dual menu");
     Require(ReadRegistry(prefix+L"OtherApp\\command") == L"unrelated-command","Never touch unrelated menu registration");
     Require(ReadIni(root,L"Backend") == L"legacy" && ReadIni(root,L"Version") == TS_VERSION_W,"Installation journal");
+    WriteIni(root,L"Version",L"..");
+    bool invalidVersion=false;
+    try { Rollback(root); } catch(const hresult_error&) { invalidVersion=true; }
+    Require(invalidVersion,"Corrupt journal stops rollback before registry changes");
+    Require(!ReadRegistry(ComKey()+L"\\InprocServer32").empty(),"Corrupt journal preserves existing COM registration");
+    WriteIni(root,L"Version",TS_VERSION_W);
+    WriteIni(root,L"Backend",L"broken");
+    bool invalidBackend=false; try { ReadIni(root,L"Backend"); } catch(const hresult_error&) { invalidBackend=true; }
+    Require(invalidBackend,"Unknown backend cannot silently select the wrong uninstall path");
+    WriteIni(root,L"Backend",L"legacy");
+    SetRegistry(prefix+L"WrongType",nullptr,L"text");
+    HKEY wrong{}; Win32(RegOpenKeyExW(HKEY_LOCAL_MACHINE,(prefix+L"WrongType").c_str(),0,KEY_SET_VALUE|KEY_WOW64_64KEY,&wrong));
+    DWORD number=1; Win32(RegSetValueExW(wrong,nullptr,0,REG_DWORD,reinterpret_cast<BYTE*>(&number),sizeof(number)));RegCloseKey(wrong);
+    bool wrongType=false; try { ReadRegistry(prefix+L"WrongType"); } catch(const hresult_error&) { wrongType=true; }
+    Require(wrongType,"Registry type errors are not treated as missing values");
     RemoveLegacyV2(); BackupV1(root,backup,true);
     Require(ReadRegistry(prefix+L"1_LightMode") == L"原来的中文菜单","Rollback retains Unicode menu text");
     Require(!ReadRegistry(prefix+L"2_DarkMode\\command").empty(),"Rollback restores previous command");
@@ -75,6 +93,7 @@ void Tests() {
     fs::remove(root/L"install-state.ini");
     // There is no MSIX in this fixture: rollback cannot call package deployment.
     Rollback(root); DiscardVersion(root);
+    DiscardVersion(root);
     Require(!fs::exists(components),"Failed new version cleanup");
     Require(fs::exists(old/L"user-note.txt"),"Rollback never removes unrelated content");
     std::cout<<"PASS deployment: process-local registry redirection, legacy upgrade/restore, Unicode, ownership, locks and safe cleanup\n";

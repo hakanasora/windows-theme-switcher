@@ -41,6 +41,8 @@ LSTATUS WINAPI FailWriteAndRollback(HKEY key,LPCWSTR name,DWORD reserved,DWORD t
 }
 void CoreTests() {
     TestKey key;
+    Check(!theme::Snapshot{static_cast<theme::Mode>(3),ERROR_SUCCESS}.Valid(),"Reject out-of-range snapshot mode");
+    Check(theme::ApplyToKey(key.key,theme::Mode::Light,nullptr).error == ERROR_INVALID_PARAMETER,"Reject null writer without touching registry");
     Check(!theme::ReadFromKey(key.key).Valid(), "Missing state must be unknown");
     key.Set(theme::SystemValue, 1); key.Set(theme::AppsValue, 0);
     auto state = theme::ReadFromKey(key.key);
@@ -76,6 +78,9 @@ void CacheTests() {
     for (int i=0;i<20;i++) { const auto light = (i%2) != 0; key.Set(theme::SystemValue, light ? 1 : 0); Check(WaitFor(cache,light?theme::Mode::Light:theme::Mode::Dark), "External change notification"); }
     DWORD baseline{}; GetProcessHandleCount(GetCurrentProcess(), &baseline);
     cache.Stop();
+    Check(!cache.Healthy() && !cache.Get().Valid(),"Stop invalidates cached theme");
+    cache.Stop();
+    Check(!cache.Get().Valid(),"Repeated stop is safe");
     for (int i=0;i<100;i++) {
         Check(cache.Start(HKEY_CURRENT_USER,key.path.c_str()) == 0, "Restart watcher");
         key.Set(theme::SystemValue, static_cast<DWORD>(i%2));
@@ -112,6 +117,12 @@ void ShellTests(const wchar_t* path) {
     IExplorerCommand* command{};
     Check(SUCCEEDED(factory->CreateInstance(nullptr,__uuidof(IExplorerCommand),reinterpret_cast<void**>(&command))),"Create command");
     Check(canUnload() == S_FALSE,"Never unload live objects");
+    Check(command->GetTitle(nullptr,nullptr) == E_POINTER && command->GetIcon(nullptr,nullptr) == E_POINTER &&
+        command->GetToolTip(nullptr,nullptr) == E_POINTER,"COM null outputs are rejected");
+    factory->LockServer(TRUE);
+    std::vector<std::thread> unlockers;
+    for (int i=0;i<8;++i) unlockers.emplace_back([factory]{ for(int n=0;n<1000;++n) factory->LockServer(FALSE); });
+    for(auto& thread:unlockers)thread.join();
     IEnumExplorerCommand* children{};
     Check(command->EnumSubCommands(&children) == E_NOTIMPL && children == nullptr,"No submenu");
     EXPCMDFLAGS flags{}; command->GetFlags(&flags);

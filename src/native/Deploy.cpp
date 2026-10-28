@@ -23,9 +23,24 @@ namespace {
 constexpr wchar_t LegacyKey[] = L"SOFTWARE\\Classes\\DesktopBackground\\Shell\\HakanaSora.ThemeSwitcher";
 std::wstring ComKey() { return L"SOFTWARE\\Classes\\CLSID\\" + std::wstring(theme::CommandClsidString); }
 void Win32(DWORD error) { if (error) throw_hresult(HRESULT_FROM_WIN32(error)); }
+bool ValidVersion(const std::wstring& value) noexcept {
+    // Exactly three nonempty decimal components; never accept '.' or '..'.
+    unsigned parts = 1;
+    bool digit = false;
+    for (const auto ch : value) {
+        if (ch >= L'0' && ch <= L'9') digit = true;
+        else if (ch == L'.' && digit && parts < 3) { ++parts; digit = false; }
+        else return false;
+    }
+    return digit && parts == 3;
+}
 std::wstring ReadIni(const fs::path& root, const wchar_t* name) {
     wchar_t value[32768]{};
     GetPrivateProfileStringW(L"Install",name,L"",value,32768,(root / L"install-state.ini").c_str());
+    if (wcscmp(name,L"Version") == 0 && *value && !ValidVersion(value))
+        throw hresult_error(E_INVALIDARG,L"安装状态中的版本号无效，已停止操作。");
+    if (wcscmp(name,L"Backend") == 0 && *value && wcscmp(value,L"modern") != 0 && wcscmp(value,L"legacy") != 0)
+        throw hresult_error(E_INVALIDARG,L"安装状态中的菜单类型无效，已停止操作。");
     return value;
 }
 void WriteIni(const fs::path& root, const wchar_t* name, const std::wstring& value) {
@@ -33,9 +48,11 @@ void WriteIni(const fs::path& root, const wchar_t* name, const std::wstring& val
 }
 std::wstring ReadRegistry(const std::wstring& path, const wchar_t* name = nullptr) {
     DWORD size{};
-    if (RegGetValueW(HKEY_LOCAL_MACHINE,path.c_str(),name,RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,nullptr,nullptr,&size)) return {};
+    auto error = RegGetValueW(HKEY_LOCAL_MACHINE,path.c_str(),name,RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,nullptr,nullptr,&size);
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return {};
+    Win32(error);
     std::wstring value(size / sizeof(wchar_t),L'\0');
-    if (RegGetValueW(HKEY_LOCAL_MACHINE,path.c_str(),name,RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,nullptr,value.data(),&size)) return {};
+    Win32(RegGetValueW(HKEY_LOCAL_MACHINE,path.c_str(),name,RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY,nullptr,value.data(),&size));
     value.resize(size / sizeof(wchar_t));
     while (!value.empty() && value.back() == L'\0') value.pop_back();
     return value;
@@ -214,6 +231,25 @@ bool OwnedVersion(const fs::path& directory) {
     if (!value.empty() && value.back() == '\r') value.pop_back();
     return value == "HakanaSora.ThemeSwitcher";
 }
+fs::path Components(const fs::path& root) {
+    const auto directory = root/L"components";
+    const auto attributes = GetFileAttributesW(directory.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        throw hresult_error(E_INVALIDARG,L"组件目录是重解析点，已停止操作。");
+    return directory;
+}
+void RemoveOwnedVersion(const fs::path& directory) {
+    if (!OwnedVersion(directory)) return;
+    // Ownership marker is last, so a failed file deletion can be retried.
+    for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"ThemeSwitcher.MenuSetup.exe",L"identity.msix",L"owner.txt"}) {
+        const auto path = directory/file;
+        if (fs::exists(path) && !DeleteFileW(path.c_str())) Win32(GetLastError());
+    }
+    if (!RemoveDirectoryW(directory.c_str())) {
+        const auto error = GetLastError();
+        if (error != ERROR_DIR_NOT_EMPTY) Win32(error);
+    }
+}
 void ProbeFile(const fs::path& path) {
     if (!fs::exists(path)) return;
     const auto handle = CreateFileW(path.c_str(),GENERIC_READ | GENERIC_WRITE,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
@@ -223,7 +259,7 @@ void ProbeFile(const fs::path& path) {
 void Preflight(const fs::path& root) {
     if (!theme::IsNativeX64()) throw hresult_error(E_NOTIMPL,L"此版本仅支持原生 x64 Windows。");
     ProbeFile(root / L"ThemeSwitcher.exe");
-    const auto components = root / L"components";
+    const auto components = Components(root);
     if (fs::exists(components)) for (const auto& directory : fs::directory_iterator(components)) {
         if (!OwnedVersion(directory.path())) continue;
         ProbeFile(directory.path()/L"ThemeSwitcherShell.dll");
@@ -232,29 +268,18 @@ void Preflight(const fs::path& root) {
     }
 }
 void CleanupOld(const fs::path& root) {
-    const auto components = root/L"components";
+    const auto components = Components(root);
     if (!fs::exists(components)) return;
     for (const auto& entry : fs::directory_iterator(components)) {
         if (entry.path().filename() == TS_VERSION_W || !OwnedVersion(entry.path())) continue;
-        // Delete only a fixed list of our files, never recursively remove a
-        // user-selected installation directory or an unknown directory.
-        for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"ThemeSwitcher.MenuSetup.exe",L"identity.msix",L"owner.txt"}) {
-            const auto path = entry.path()/file;
-            if (fs::exists(path) && !DeleteFileW(path.c_str())) Win32(GetLastError());
-        }
-        if (!RemoveDirectoryW(entry.path().c_str())) {
-            const auto error=GetLastError();
-            // Leave unrelated user-created files intact after our files and
-            // marker are gone. They are not part of this installation.
-            if (error != ERROR_DIR_NOT_EMPTY) Win32(error);
-        }
+        RemoveOwnedVersion(entry.path());
     }
 }
 void Uninstall(const fs::path& root) {
     Preflight(root);
     if (ReadIni(root,L"Backend") == L"modern") {
         const auto version = ReadIni(root,L"Version");
-        if (version.empty() || version.find_first_not_of(L"0123456789.") != std::wstring::npos) throw_hresult(E_INVALIDARG);
+        if (!ValidVersion(version)) throw_hresult(E_INVALIDARG);
         const auto package=root/L"components"/version/L"identity.msix";
         const auto id=ReadIdentity(package);
         try {
@@ -318,14 +343,12 @@ void VerifySignature(const fs::path& package) {
 }
 void DiscardVersion(const fs::path& root) {
     if (ReadIni(root,L"Version") == TS_VERSION_W) return;
-    const auto directory=root/L"components"/TS_VERSION_W;
-    if (!OwnedVersion(directory)) return;
-    for (const auto* file : {L"ThemeSwitcherShell.dll",L"ThemeSwitcher.Deploy.exe",L"ThemeSwitcher.MenuSetup.exe",L"identity.msix",L"owner.txt"}) {
-        const auto path=directory/file;
-        if (fs::exists(path) && !DeleteFileW(path.c_str())) Win32(GetLastError());
+    const auto components = Components(root);
+    RemoveOwnedVersion(components/TS_VERSION_W);
+    if (!RemoveDirectoryW(components.c_str())) {
+        const auto error = GetLastError();
+        if (error != ERROR_DIR_NOT_EMPTY && error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) Win32(error);
     }
-    if (!RemoveDirectoryW(directory.c_str()) && GetLastError() != ERROR_DIR_NOT_EMPTY) Win32(GetLastError());
-    RemoveDirectoryW((root/L"components").c_str()); // Only removes an empty directory.
 }
 void SaveError(const fs::path& file,const std::wstring& error) noexcept {
     if (file.empty()) return;

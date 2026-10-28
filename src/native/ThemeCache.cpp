@@ -59,6 +59,8 @@ void Cache::StopLocked() noexcept {
     }
     if (key_) { RegCloseKey(key_); key_ = nullptr; }
     if (event_) { CloseHandle(event_); event_ = nullptr; }
+    // A stopped watcher must not expose a stale, apparently actionable theme.
+    Publish({Mode::Unknown, ERROR_NOT_READY});
 }
 void Cache::Stop() noexcept { std::lock_guard lock(lifecycle_); StopLocked(); }
 }
